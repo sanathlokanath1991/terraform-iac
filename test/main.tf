@@ -2,236 +2,240 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# VPC
+# VPC and Subnets
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
-
-  enable_dns_hostnames = true
-  enable_dns_support   = true
 }
 
-# Internet Gateway
-resource "aws_internet_gateway" "gw" {
-  vpc_id = aws_vpc.main.id
+resource "aws_subnet" "private" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.1.0/24"
 }
 
-# Public Subnets
-resource "aws_subnet" "public_subnet_az1" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.0.0/24"
-  availability_zone       = "us-east-1a"
-  map_public_ip_on_launch = true
+resource "aws_subnet" "public" {
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.2.0/24"
 }
 
-resource "aws_subnet" "public_subnet_az2" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.0.0/24"
-  availability_zone       = "us-east-1b"
-  map_public_ip_on_launch = true
+# Frontend and Backend Load Balancers
+resource "aws_lb" "frontend" {
+  name               = "frontend-lb"
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.public.id]
 }
 
-resource "aws_subnet" "public_subnet_az3" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.0.0/24"
-  availability_zone       = "us-east-1c"
-  map_public_ip_on_launch = true
+resource "aws_lb" "backend" {
+  name               = "backend-lb"
+  load_balancer_type = "network"
+  subnets            = [aws_subnet.private.id]
 }
 
-# Private Subnets
-resource "aws_subnet" "private_subnet_az1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
+# ECS Cluster and Services
+resource "aws_ecs_cluster" "main" {
+  name = "main-cluster"
 }
 
-resource "aws_subnet" "private_subnet_az2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1b"
-}
+resource "aws_ecs_service" "frontend" {
+  name            = "frontend-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.frontend.arn
+  desired_count   = 2
+  launch_type     = "EC2"
 
-resource "aws_subnet" "private_subnet_az3" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1c"
-}
-
-# Data Subnets
-resource "aws_subnet" "data_subnet_az1" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1a"
-}
-
-resource "aws_subnet" "data_subnet_az2" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
-}
-
-resource "aws_subnet" "data_subnet_az3" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.2.0/24"
-  availability_zone = "us-east-1c"
-}
-
-# NAT Gateways
-resource "aws_nat_gateway" "nat_gw_az1" {
-  allocation_id = aws_eip.nat_eip_az1.id
-  subnet_id     = aws_subnet.public_subnet_az1.id
-}
-
-resource "aws_nat_gateway" "nat_gw_az2" {
-  allocation_id = aws_eip.nat_eip_az2.id
-  subnet_id     = aws_subnet.public_subnet_az2.id
-}
-
-resource "aws_nat_gateway" "nat_gw_az3" {
-  allocation_id = aws_eip.nat_eip_az3.id
-  subnet_id     = aws_subnet.public_subnet_az3.id
-}
-
-# Elastic IPs for NAT Gateways
-resource "aws_eip" "nat_eip_az1" {
-  vpc   = true
-  depends_on = [aws_internet_gateway.gw]
-}
-
-resource "aws_eip" "nat_eip_az2" {
-  vpc   = true
-  depends_on = [aws_internet_gateway.gw]
-}
-
-resource "aws_eip" "nat_eip_az3" {
-  vpc   = true
-  depends_on = [aws_internet_gateway.gw]
-}
-
-# Route Tables
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.gw.id
+  load_balancer {
+    target_group_arn = aws_lb_target_group.frontend.arn
+    container_name   = "frontend"
+    container_port   = 80
   }
 }
 
-resource "aws_route_table" "private_rt_az1" {
-  vpc_id = aws_vpc.main.id
+resource "aws_ecs_service" "backend" {
+  name            = "backend-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.backend.arn
+  desired_count   = 2
+  launch_type     = "EC2"
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw_az1.id
+  load_balancer {
+    target_group_arn = aws_lb_target_group.backend.arn
+    container_name   = "backend"
+    container_port   = 8080
   }
 }
 
-resource "aws_route_table" "private_rt_az2" {
-  vpc_id = aws_vpc.main.id
+# Task Definitions
+resource "aws_ecs_task_definition" "frontend" {
+  family = "frontend-task"
+  container_definitions = <<DEFINITION
+[
+  {
+    "name": "frontend",
+    "image": "frontend-image",
+    "portMappings": [
+      {
+        "containerPort": 80
+      }
+    ]
+  }
+]
+DEFINITION
+}
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw_az2.id
+resource "aws_ecs_task_definition" "backend" {
+  family = "backend-task"
+  container_definitions = <<DEFINITION
+[
+  {
+    "name": "backend",
+    "image": "backend-image",
+    "portMappings": [
+      {
+        "containerPort": 8080
+      }
+    ]
+  }
+]
+DEFINITION
+}
+
+# CloudWatch Log Groups
+resource "aws_cloudwatch_log_group" "frontend" {
+  name = "frontend-logs"
+}
+
+resource "aws_cloudwatch_log_group" "backend" {
+  name = "backend-logs"
+}
+
+# CodeCommit, CodeBuild, ECR, and CodePipeline
+resource "aws_codecommit_repository" "main" {
+  repository_name = "main-repo"
+}
+
+resource "aws_codebuild_project" "main" {
+  name          = "main-build"
+  service_role  = aws_iam_role.codebuild_role.arn
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+  environment {
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/standard:5.0"
+    type         = "LINUX_CONTAINER"
+  }
+  source {
+    type = "CODECOMMIT"
+    location = aws_codecommit_repository.main.clone_url_http
   }
 }
 
-resource "aws_route_table" "private_rt_az3" {
-  vpc_id = aws_vpc.main.id
+resource "aws_ecr_repository" "frontend" {
+  name = "frontend-repo"
+}
 
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gw_az3.id
+resource "aws_ecr_repository" "backend" {
+  name = "backend-repo"
+}
+
+resource "aws_codepipeline" "main" {
+  name     = "main-pipeline"
+  role_arn = aws_iam_role.codepipeline_role.arn
+
+  artifact_store {
+    location = aws_s3_bucket.artifact_bucket.bucket
+    type     = "S3"
+  }
+
+  stage {
+    name = "Source"
+    action {
+      name             = "Source"
+      category         = "Source"
+      owner            = "AWS"
+      provider         = "CodeCommit"
+      version          = "1"
+      output_artifacts = ["source_output"]
+      configuration = {
+        RepositoryName       = aws_codecommit_repository.main.repository_name
+        BranchName           = "main"
+        PollForSourceChanges = "false"
+      }
+    }
+  }
+
+  stage {
+    name = "Build"
+    action {
+      name             = "Build"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["build_output"]
+      version          = "1"
+      configuration = {
+        ProjectName = aws_codebuild_project.main.name
+      }
+    }
+  }
+
+  stage {
+    name = "Deploy"
+    action {
+      name            = "Deploy"
+      category        = "Deploy"
+      owner           = "AWS"
+      provider        = "ECS"
+      input_artifacts = ["build_output"]
+      version         = "1"
+      configuration = {
+        ClusterName = aws_ecs_cluster.main.name
+        ServiceName = aws_ecs_service.frontend.name
+        FileName    = "imagedefinitions.json"
+      }
+    }
   }
 }
 
-# Route Table Associations
-resource "aws_route_table_association" "public_subnet_az1" {
-  subnet_id      = aws_subnet.public_subnet_az1.id
-  route_table_id = aws_route_table.public_rt.id
+# IAM Roles and Policies
+resource "aws_iam_role" "codebuild_role" {
+  name = "codebuild-role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "codebuild.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
 }
 
-resource "aws_route_table_association" "public_subnet_az2" {
-  subnet_id      = aws_subnet.public_subnet_az2.id
-  route_table_id = aws_route_table.public_rt.id
+resource "aws_iam_role" "codepipeline_role" {
+  name = "codepipeline-role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "codepipeline.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
 }
 
-resource "aws_route_table_association" "public_subnet_az3" {
-  subnet_id      = aws_subnet.public_subnet_az3.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-resource "aws_route_table_association" "private_subnet_az1" {
-  subnet_id      = aws_subnet.private_subnet_az1.id
-  route_table_id = aws_route_table.private_rt_az1.id
-}
-
-resource "aws_route_table_association" "private_subnet_az2" {
-  subnet_id      = aws_subnet.private_subnet_az2.id
-  route_table_id = aws_route_table.private_rt_az2.id
-}
-
-resource "aws_route_table_association" "private_subnet_az3" {
-  subnet_id      = aws_subnet.private_subnet_az3.id
-  route_table_id = aws_route_table.private_rt_az3.id
-}
-
-# Security Group
-resource "aws_security_group" "allow_ssh" {
-  name        = "allow_ssh"
-  description = "Allow SSH inbound traffic"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port       = 0
-    to_port         = 0
-    protocol        = "-1"
-    cidr_blocks     = ["0.0.0.0/0"]
-  }
-}
-
-# EC2 Instances
-resource "aws_instance" "public_ec2_az1" {
-  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public_subnet_az1.id
-  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
-
-  associate_public_ip_address = true
-
-  tags = {
-    Name = "Public EC2 Instance AZ1"
-  }
-}
-
-resource "aws_instance" "public_ec2_az2" {
-  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public_subnet_az2.id
-  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
-
-  associate_public_ip_address = true
-
-  tags = {
-    Name = "Public EC2 Instance AZ2"
-  }
-}
-
-resource "aws_instance" "public_ec2_az3" {
-  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public_subnet_az3.id
-  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
-
-  associate_public_ip_address = true
-
-  tags = {
-    Name = "Public EC2 Instance AZ3"
-  }
+# S3 Bucket for Artifacts
+resource "aws_s3_bucket" "artifact_bucket" {
+  bucket = "artifact-bucket"
+  acl    = "private"
 }
