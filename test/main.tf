@@ -1,10 +1,13 @@
+```hcl
 provider "aws" {
   region = "us-east-1"
 }
 
 # VPC
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
 
   tags = {
     Name = "Main VPC"
@@ -12,303 +15,269 @@ resource "aws_vpc" "main" {
 }
 
 # Public Subnets
-resource "aws_subnet" "public_subnets" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = element(["10.0.0.0/24", "10.0.1.0/24"], count.index)
-  availability_zone       = element(["us-east-1a", "us-east-1b"], count.index)
-  map_public_ip_on_launch = true
+resource "aws_subnet" "public_1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.1.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
-    Name = "Public Subnet ${count.index + 1}"
+    Name = "Public Subnet 1"
+  }
+}
+
+resource "aws_subnet" "public_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "us-east-1b"
+
+  tags = {
+    Name = "Public Subnet 2"
+  }
+}
+
+resource "aws_subnet" "public_3" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.3.0/24"
+  availability_zone = "us-east-1c"
+
+  tags = {
+    Name = "Public Subnet 3"
   }
 }
 
 # Private Subnets
-resource "aws_subnet" "private_subnets" {
-  count                   = 2
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = element(["10.0.2.0/24", "10.0.3.0/24"], count.index)
-  availability_zone       = element(["us-east-1a", "us-east-1b"], count.index)
-  map_public_ip_on_launch = false
+resource "aws_subnet" "private_1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.10.0/24"
+  availability_zone = "us-east-1a"
 
   tags = {
-    Name = "Private Subnet ${count.index + 1}"
+    Name = "Private Subnet 1"
   }
 }
 
-# ECS Cluster
-resource "aws_ecs_cluster" "main" {
-  name = "my-ecs-cluster"
+resource "aws_subnet" "private_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.20.0/24"
+  availability_zone = "us-east-1b"
 
-  setting {
-    name  = "containerInsights"
-    value = "enabled"
+  tags = {
+    Name = "Private Subnet 2"
   }
 }
 
-# ECS Task Definitions
-resource "aws_ecs_task_definition" "frontend_task" {
-  family                   = "frontend-task"
-  cpu                      = 256
-  memory                   = 512
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn
+resource "aws_subnet" "private_3" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.30.0/24"
+  availability_zone = "us-east-1c"
 
-  container_definitions = jsonencode([
-    {
-      name      = "frontend-container"
-      image     = "amazon/amazon-ecs-sample"
-      essential = true
-      portMappings = [
-        {
-          containerPort = 80
-          hostPort      = 80
-        }
-      ]
-    }
-  ])
-}
-
-resource "aws_ecs_task_definition" "api_task" {
-  family                   = "api-task"
-  cpu                      = 256
-  memory                   = 512
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  execution_role_arn       = aws_iam_role.ecs_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_task_role.arn
-
-  container_definitions = jsonencode([
-    {
-      name      = "api-container"
-      image     = "amazon/amazon-ecs-sample"
-      essential = true
-      portMappings = [
-        {
-          containerPort = 80
-          hostPort      = 80
-        }
-      ]
-    }
-  ])
-}
-
-# API Gateway
-resource "aws_apigatewayv2_api" "main" {
-  name          = "my-api-gateway"
-  protocol_type = "HTTP"
-}
-
-resource "aws_apigatewayv2_integration" "api_integration" {
-  api_id           = aws_apigatewayv2_api.main.id
-  integration_type = "HTTP_PROXY"
-
-  integration_method = "ANY"
-  integration_uri    = aws_lb.frontend.dns_name
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_route" "api_route" {
-  api_id    = aws_apigatewayv2_api.main.id
-  route_key = "ANY /{proxy+}"
-  target    = "integrations/${aws_apigatewayv2_integration.api_integration.id}"
-}
-
-# ALB
-resource "aws_lb" "frontend" {
-  name               = "my-alb"
-  load_balancer_type = "application"
-  subnets            = aws_subnet.public_subnets[*].id
-  security_groups    = [aws_security_group.alb_sg.id]
-}
-
-resource "aws_lb_listener" "frontend_listener" {
-  load_balancer_arn = aws_lb.frontend.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.frontend_tg.arn
+  tags = {
+    Name = "Private Subnet 3"
   }
 }
 
-resource "aws_lb_target_group" "frontend_tg" {
-  name        = "frontend-tg"
-  port        = 80
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"
+# Data Subnets
+resource "aws_subnet" "data_1" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.100.0/24"
+  availability_zone = "us-east-1a"
 
-  health_check {
-    path = "/"
+  tags = {
+    Name = "Data Subnet 1"
   }
 }
 
-resource "aws_ecs_service" "frontend_service" {
-  name            = "frontend-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.frontend_task.arn
-  desired_count   = 2
-  launch_type     = "FARGATE"
+resource "aws_subnet" "data_2" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.200.0/24"
+  availability_zone = "us-east-1b"
 
-  network_configuration {
-    subnets          = aws_subnet.private_subnets[*].id
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = false
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.frontend_tg.arn
-    container_name   = "frontend-container"
-    container_port   = 80
+  tags = {
+    Name = "Data Subnet 2"
   }
 }
 
-# CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "ecs_log_group" {
-  name              = "/ecs/my-ecs-cluster"
-  retention_in_days = 30
+resource "aws_subnet" "data_3" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.300.0/24"
+  availability_zone = "us-east-1c"
+
+  tags = {
+    Name = "Data Subnet 3"
+  }
 }
 
-# CloudWatch Metrics
-resource "aws_cloudwatch_metric_alarm" "high_cpu_utilization" {
-  alarm_name          = "HighCPUUtilization"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 2
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/ECS"
-  period              = 300
-  statistic           = "Average"
-  threshold           = 80
+# Internet Gateway
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
 
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
+  tags = {
+    Name = "Main Internet Gateway"
+  }
+}
+
+# NAT Gateways
+resource "aws_nat_gateway" "nat_1" {
+  allocation_id = aws_eip.nat_1.id
+  subnet_id     = aws_subnet.public_1.id
+
+  tags = {
+    Name = "NAT Gateway 1"
+  }
+}
+
+resource "aws_nat_gateway" "nat_2" {
+  allocation_id = aws_eip.nat_2.id
+  subnet_id     = aws_subnet.public_2.id
+
+  tags = {
+    Name = "NAT Gateway 2"
+  }
+}
+
+resource "aws_nat_gateway" "nat_3" {
+  allocation_id = aws_eip.nat_3.id
+  subnet_id     = aws_subnet.public_3.id
+
+  tags = {
+    Name = "NAT Gateway 3"
+  }
+}
+
+# Elastic IPs for NAT Gateways
+resource "aws_eip" "nat_1" {
+  vpc   = true
+  tags = {
+    Name = "NAT Gateway 1 EIP"
+  }
+}
+
+resource "aws_eip" "nat_2" {
+  vpc   = true
+  tags = {
+    Name = "NAT Gateway 2 EIP"
+  }
+}
+
+resource "aws_eip" "nat_3" {
+  vpc   = true
+  tags = {
+    Name = "NAT Gateway 3 EIP"
+  }
+}
+
+# Route Tables
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
   }
 
-  alarm_description = "This metric monitors high CPU utilization"
-  alarm_actions     = ["arn:aws:sns:us-east-1:123456789012:my-alarm-notification"]
+  tags = {
+    Name = "Public Route Table"
+  }
 }
 
-resource "aws_cloudwatch_metric_alarm" "high_memory_utilization" {
-  alarm_name          = "HighMemoryUtilization"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 2
-  metric_name         = "MemoryUtilization"
-  namespace           = "AWS/ECS"
-  period              = 300
-  statistic           = "Average"
-  threshold           = 80
+resource "aws_route_table" "private_1" {
+  vpc_id = aws_vpc.main.id
 
-  dimensions = {
-    ClusterName = aws_ecs_cluster.main.name
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_1.id
   }
 
-  alarm_description = "This metric monitors high memory utilization"
-  alarm_actions     = ["arn:aws:sns:us-east-1:123456789012:my-alarm-notification"]
+  tags = {
+    Name = "Private Route Table 1"
+  }
 }
 
-# IAM Roles
-resource "aws_iam_role" "ecs_task_role" {
-  name = "my-ecs-task-role"
+resource "aws_route_table" "private_2" {
+  vpc_id = aws_vpc.main.id
 
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ecs-tasks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_2.id
+  }
+
+  tags = {
+    Name = "Private Route Table 2"
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_task_role_policy" {
-  role       = aws_iam_role.ecs_task_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+resource "aws_route_table" "private_3" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_3.id
+  }
+
+  tags = {
+    Name = "Private Route Table 3"
+  }
 }
 
-resource "aws_iam_role" "ecs_execution_role" {
-  name = "my-ecs-execution-role"
-
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "ecs-tasks.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+# Route Table Associations
+resource "aws_route_table_association" "public_1" {
+  subnet_id      = aws_subnet.public_1.id
+  route_table_id = aws_route_table.public.id
 }
 
-resource "aws_iam_role_policy_attachment" "ecs_execution_role_policy" {
-  role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+resource "aws_route_table_association" "public_2" {
+  subnet_id      = aws_subnet.public_2.id
+  route_table_id = aws_route_table.public.id
 }
 
-resource "aws_iam_role_policy_attachment" "cloudwatch_logs_policy" {
-  role       = aws_iam_role.ecs_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+resource "aws_route_table_association" "public_3" {
+  subnet_id      = aws_subnet.public_3.id
+  route_table_id = aws_route_table.public.id
 }
 
-resource "aws_iam_role" "api_gateway_role" {
-  name = "my-api-gateway-resource-policy"
-
-  assume_role_policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Service": "apigateway.amazonaws.com"
-      },
-      "Action": "sts:AssumeRole"
-    }
-  ]
-}
-EOF
+resource "aws_route_table_association" "private_1" {
+  subnet_id      = aws_subnet.private_1.id
+  route_table_id = aws_route_table.private_1.id
 }
 
-resource "aws_iam_role_policy" "api_gateway_policy" {
-  name = "my-api-gateway-resource-policy"
-  role = aws_iam_role.api_gateway_role.id
-
-  policy = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "*"
-      },
-      "Action": "execute-api:Invoke",
-      "Resource": "${aws_apigatewayv2_api.main.execution_arn}/*"
-    }
-  ]
+resource "aws_route_table_association" "private_2" {
+  subnet_id      = aws_subnet.private_2.id
+  route_table_id = aws_route_table.private_2.id
 }
-EOF
+
+resource "aws_route_table_association" "private_3" {
+  subnet_id      = aws_subnet.private_3.id
+  route_table_id = aws_route_table.private_3.id
 }
 
 # Security Groups
-resource "aws_security_group" "alb_sg" {
-  name        = "ALB Security Group"
-  description = "Allow inbound traffic to ALB"
+resource "aws_security_group" "ssh_access" {
+  name        = "SSH Access"
+  description = "Allow SSH access"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port       = 0
+    to_port         = 0
+    protocol        = "-1"
+    cidr_blocks     = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "SSH Access"
+  }
+}
+
+resource "aws_security_group" "web_access" {
+  name        = "Web Access"
+  description = "Allow web access"
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -319,29 +288,165 @@ resource "aws_security_group" "alb_sg" {
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_security_group" "ecs_sg" {
-  name        = "ECS Security Group"
-  description = "Allow inbound traffic from ALB"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
     from_port       = 0
     to_port         = 0
     protocol        = "-1"
-    security_groups = [aws_security_group.alb_sg.id]
+    cidr_blocks     = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "Web Access"
+  }
+}
+
+# Network ACLs
+resource "aws_network_acl" "public" {
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+
+  ingress {
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
+  }
+
+  tags = {
+    Name = "Public Network ACL"
   }
 }
+
+resource "aws_network_acl" "private" {
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = [aws_subnet.private_1.id, aws_subnet.private_2.id, aws_subnet.private_3.id]
+
+  ingress {
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
+  }
+
+  egress {
+    protocol   = "-1"
+    rule_no    = 100
+    action     = "allow"
+    cidr_block = "0.0.0.0/0"
+    from_port  = 0
+    to_port    = 0
+  }
+
+  tags = {
+    Name = "Private Network ACL"
+  }
+}
+
+# Bastion Hosts
+resource "aws_instance" "bastion_1" {
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.public_1.id
+  vpc_security_group_ids = [aws_security_group.ssh_access.id]
+
+  tags = {
+    Name = "Bastion Host 1"
+  }
+}
+
+resource "aws_instance" "bastion_2" {
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.public_2.id
+  vpc_security_group_ids = [aws_security_group.ssh_access.id]
+
+  tags = {
+    Name = "Bastion Host 2"
+  }
+}
+
+resource "aws_instance" "bastion_3" {
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.public_3.id
+  vpc_security_group_ids = [aws_security_group.ssh_access.id]
+
+  tags = {
+    Name = "Bastion Host 3"
+  }
+}
+
+# Web Servers
+resource "aws_instance" "web_server_1" {
+  count         = 2
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.private_1.id
+  vpc_security_group_ids = [aws_security_group.web_access.id]
+
+  tags = {
+    Name = "Web Server 1-${count.index + 1}"
+  }
+}
+
+resource "aws_instance" "web_server_2" {
+  count         = 2
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.private_2.id
+  vpc_security_group_ids = [aws_security_group.web_access.id]
+
+  tags = {
+    Name = "Web Server 2-${count.index + 1}"
+  }
+}
+
+resource "aws_instance" "web_server_3" {
+  count         = 2
+  ami           = "ami-0cff7528ff583bf9a" # Replace with your desired AMI
+  instance_type = "t2.micro"
+  subnet_id     = aws_subnet.private_3.id
+  vpc_security_group_ids = [aws_security_group.web_access.id]
+
+  tags = {
+    Name = "Web Server 3-${count.index + 1}"
+  }
+}
+
+# Load Balancer
+resource "aws_lb" "web_lb" {
+  name               = "Web-LB"
+  load_balancer_type = "application"
+  subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
+  security_groups    = [aws_security_group.web_access.id]
+}
+
+resource "aws_lb_listener" "web_lb_listener" {
+  load_balancer_arn = aws_lb.web_lb.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type = "forward"
+  }
+}
+
+# CloudWatch Logging
+resource "aws_cloudwatch_log_group" "main" {
+  name = "main-log-group"
+}
+```
+
+This Terraform code creates the infrastructure as per the provided architecture diagram, including the VPC, subnets, internet gateway, NAT gateways, route tables, security groups, network ACLs, bastion hosts, web servers, load balancer, and CloudWatch log group. Please note that you will need to replace the AMI ID with the desired AMI for your instances.
